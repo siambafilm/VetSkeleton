@@ -27,6 +27,9 @@ public class BoneViewerSystem : MonoBehaviour
     private RectTransform topPanel;
     private RectTransform boneListContent;
 
+    // Запоминаем, какая кость сейчас в режиме «только она»
+    private BoneEntry soloedBone;
+
     private class BoneEntry
     {
         public string name;
@@ -35,6 +38,61 @@ public class BoneViewerSystem : MonoBehaviour
         public Renderer renderer;       // может быть null
         public bool visible = true;
         public Text toggleLabel;
+        public Image itemBg;            // фон карточки в списке
+    }
+
+    // ===========================================================
+    //  Спрайт со скруглёнными углами (генерируется в рантайме)
+    // ===========================================================
+    private static Sprite _roundedSprite;
+    static Sprite RoundedSprite
+    {
+        get
+        {
+            if (_roundedSprite != null) return _roundedSprite;
+
+            int size = 64;
+            int radius = 16;
+            var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            tex.filterMode = FilterMode.Bilinear;
+            tex.wrapMode   = TextureWrapMode.Clamp;
+
+            var pixels = new Color32[size * size];
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float cx = x + 0.5f;
+                    float cy = y + 0.5f;
+                    float alpha = 1f;
+
+                    float dx = 0f, dy = 0f;
+                    if      (cx < radius)           dx = radius - cx;
+                    else if (cx > size - radius)    dx = cx - (size - radius);
+                    if      (cy < radius)           dy = radius - cy;
+                    else if (cy > size - radius)    dy = cy - (size - radius);
+
+                    if (dx > 0f && dy > 0f)
+                    {
+                        float dist = Mathf.Sqrt(dx * dx + dy * dy);
+                        alpha = Mathf.Clamp01(radius - dist);
+                    }
+
+                    pixels[y * size + x] = new Color32(255, 255, 255, (byte)(alpha * 255));
+                }
+            }
+            tex.SetPixels32(pixels);
+            tex.Apply();
+
+            _roundedSprite = Sprite.Create(
+                tex,
+                new Rect(0, 0, size, size),
+                new Vector2(0.5f, 0.5f),
+                100f, 0,
+                SpriteMeshType.FullRect,
+                new Vector4(radius, radius, radius, radius));
+            return _roundedSprite;
+        }
     }
 
     // ===========================================================
@@ -98,20 +156,10 @@ public class BoneViewerSystem : MonoBehaviour
         scaler.matchWidthOrHeight = 0.5f;
         canvasGO.AddComponent<GraphicRaycaster>();
 
-        // --- AlwaysVisible ---
-        var alwaysRoot = NewRect("AlwaysVisible", canvas.transform);
-        Stretch(alwaysRoot);
-
-        // Кнопка X (правый верх)
-        var xBtn = CreateButton(alwaysRoot, "X", new Vector2(100, 100),
-                                new Color(0.75f, 0.2f, 0.2f, 0.95f),
-                                ToggleUI);
-        var xRT = xBtn.GetComponent<RectTransform>();
-        xRT.anchorMin = new Vector2(1, 1);
-        xRT.anchorMax = new Vector2(1, 1);
-        xRT.pivot     = new Vector2(1, 1);
-        xRT.anchoredPosition = new Vector2(-20, -20);
-        xRT.sizeDelta = new Vector2(100, 100);
+        // ---------------------------------------------------------
+        // ВАЖНО: сначала создаём UIRoot (скрываемый слой),
+        // а AlwaysVisible — ПОСЛЕ, чтобы кнопка X рисовалась поверх.
+        // ---------------------------------------------------------
 
         // --- Toggleable UI ---
         uiRoot = NewRect("UIRoot", canvas.transform);
@@ -126,7 +174,7 @@ public class BoneViewerSystem : MonoBehaviour
         topPanel.offsetMax = new Vector2(0, 0);
 
         var topBg = topPanel.gameObject.AddComponent<Image>();
-        topBg.color = new Color(0, 0, 0, 0.55f);
+        topBg.color = new Color(0.08f, 0.09f, 0.13f, 0.88f);
 
         var topHLG = topPanel.gameObject.AddComponent<HorizontalLayoutGroup>();
         topHLG.childAlignment = TextAnchor.MiddleLeft;
@@ -142,7 +190,7 @@ public class BoneViewerSystem : MonoBehaviour
             if (prefab == null) continue;
             var p = prefab;
             var btn = CreateButton(topPanel, prefab.name, new Vector2(220, 100),
-                                   new Color(0.2f, 0.45f, 0.85f, 1f),
+                                   new Color(0.24f, 0.5f, 0.88f, 1f),
                                    () => SpawnPrefab(p));
             var le = btn.gameObject.AddComponent<LayoutElement>();
             le.preferredWidth  = 220;
@@ -155,10 +203,10 @@ public class BoneViewerSystem : MonoBehaviour
         leftPanel.anchorMax = new Vector2(0, 1);
         leftPanel.pivot     = new Vector2(0, 0.5f);
         leftPanel.offsetMin = new Vector2(0, 0);
-        leftPanel.offsetMax = new Vector2(430, -130);   // ниже топ-панели
+        leftPanel.offsetMax = new Vector2(430, -130);
 
         var lpBg = leftPanel.gameObject.AddComponent<Image>();
-        lpBg.color = new Color(0, 0, 0, 0.55f);
+        lpBg.color = new Color(0.08f, 0.09f, 0.13f, 0.88f);
 
         // ScrollView
         var scrollGO = NewRect("ScrollView", leftPanel);
@@ -197,6 +245,21 @@ public class BoneViewerSystem : MonoBehaviour
         scrollRect.movementType = ScrollRect.MovementType.Clamped;
         scrollRect.scrollSensitivity = 30f;
 
+        // --- AlwaysVisible (создаётся ПОСЛЕ uiRoot => рендерится поверх) ---
+        var alwaysRoot = NewRect("AlwaysVisible", canvas.transform);
+        Stretch(alwaysRoot);
+
+        // Кнопка X (правый верх)
+        var xBtn = CreateButton(alwaysRoot, "X", new Vector2(100, 100),
+                                new Color(0.9f, 0.28f, 0.35f, 1f),
+                                ToggleUI);
+        var xRT = xBtn.GetComponent<RectTransform>();
+        xRT.anchorMin = new Vector2(1, 1);
+        xRT.anchorMax = new Vector2(1, 1);
+        xRT.pivot     = new Vector2(1, 1);
+        xRT.anchoredPosition = new Vector2(-20, -20);
+        xRT.sizeDelta = new Vector2(100, 100);
+
         // Материал для маркеров костей
         var shader = Shader.Find("Unlit/Color");
         if (shader == null) shader = Shader.Find("Standard");
@@ -217,6 +280,7 @@ public class BoneViewerSystem : MonoBehaviour
     {
         if (currentInstance != null) Destroy(currentInstance);
         bones.Clear();
+        soloedBone = null;   // сбрасываем режим соло при смене модели
 
         currentInstance = Instantiate(prefab);
         currentInstance.transform.position = Vector3.zero;
@@ -234,21 +298,15 @@ public class BoneViewerSystem : MonoBehaviour
     // ===========================================================
     void FindBones(GameObject instance)
     {
-        // 1) Пробуем SkinnedMeshRenderer.bones
         var smr = instance.GetComponentInChildren<SkinnedMeshRenderer>();
         if (smr != null && smr.bones != null && smr.bones.Length > 0)
         {
             var set = new HashSet<Transform>();
-            if (smr.rootBone != null)
-            {
-                AddBone(smr.rootBone, set);
-            }
-            foreach (var t in smr.bones)
-                AddBone(t, set);
+            if (smr.rootBone != null) AddBone(smr.rootBone, set);
+            foreach (var t in smr.bones) AddBone(t, set);
             return;
         }
 
-        // 2) Fallback: все дочерние Transform
         foreach (var t in instance.GetComponentsInChildren<Transform>())
         {
             if (t == instance.transform) continue;
@@ -275,11 +333,10 @@ public class BoneViewerSystem : MonoBehaviour
     }
 
     // ===========================================================
-    //  Визуализация кости (маркер или сам рендерер)
+    //  Визуализация кости
     // ===========================================================
     void SetupBoneVisual(BoneEntry b)
     {
-        // Если у самой кости есть рендерер — включаем/выключаем его.
         var r = b.transform.GetComponent<Renderer>();
         if (r != null)
         {
@@ -289,7 +346,6 @@ public class BoneViewerSystem : MonoBehaviour
             return;
         }
 
-        // Иначе создаём сферический маркер-ребёнок
         var marker = GameObject.CreatePrimitive(PrimitiveType.Sphere);
         marker.name = "Marker_" + b.name;
         marker.transform.SetParent(b.transform, false);
@@ -323,10 +379,18 @@ public class BoneViewerSystem : MonoBehaviour
     void CreateBoneItem(BoneEntry bone)
     {
         var item = NewRect("BoneItem", boneListContent);
+
+        // Карточка с фоном (скруглённая)
+        var bg = item.gameObject.AddComponent<Image>();
+        bg.color  = new Color(0.18f, 0.20f, 0.26f, 0.9f);
+        bg.sprite = RoundedSprite;
+        bg.type   = Image.Type.Sliced;
+        bone.itemBg = bg;
+
         var hlg = item.gameObject.AddComponent<HorizontalLayoutGroup>();
         hlg.childAlignment = TextAnchor.MiddleLeft;
         hlg.spacing = 6;
-        hlg.padding = new RectOffset(4, 4, 4, 4);
+        hlg.padding = new RectOffset(8, 8, 6, 6);
         hlg.childControlHeight = true;
         hlg.childControlWidth  = false;
         hlg.childForceExpandWidth  = false;
@@ -336,16 +400,16 @@ public class BoneViewerSystem : MonoBehaviour
         le.preferredHeight = 76;
         le.minHeight       = 76;
 
-        // Кнопка +/- 
+        // Кнопка +/-
         var toggleBtn = CreateButton(item, bone.visible ? "-" : "+", new Vector2(76, 0),
-                                     new Color(0.3f, 0.3f, 0.3f, 1f),
+                                     new Color(0.35f, 0.35f, 0.42f, 1f),
                                      () => ToggleBone(bone));
         toggleBtn.gameObject.AddComponent<LayoutElement>().preferredWidth = 76;
         bone.toggleLabel = toggleBtn.GetComponentInChildren<Text>();
 
-        // Кнопка "0"
+        // Кнопка "0" (соло)
         var zeroBtn = CreateButton(item, "0", new Vector2(76, 0),
-                                   new Color(0.25f, 0.55f, 0.25f, 1f),
+                                   new Color(0.2f, 0.7f, 0.55f, 1f),
                                    () => SoloBone(bone));
         zeroBtn.gameObject.AddComponent<LayoutElement>().preferredWidth = 76;
 
@@ -354,7 +418,7 @@ public class BoneViewerSystem : MonoBehaviour
         var nameTxt = nameGO.gameObject.AddComponent<Text>();
         nameTxt.text = bone.name;
         nameTxt.alignment = TextAnchor.MiddleLeft;
-        nameTxt.color = Color.white;
+        nameTxt.color = new Color(0.92f, 0.94f, 1f, 1f);
         nameTxt.fontSize = 26;
         nameTxt.font = GetDefaultFont();
         nameTxt.horizontalOverflow = HorizontalWrapMode.Wrap;
@@ -376,8 +440,17 @@ public class BoneViewerSystem : MonoBehaviour
 
     void SoloBone(BoneEntry target)
     {
-        foreach (var b in bones)
-            SetBoneVisible(b, b == target);
+        // Повторный клик по «0» на той же кости → показать все
+        if (soloedBone == target)
+        {
+            foreach (var b in bones) SetBoneVisible(b, true);
+            soloedBone = null;
+        }
+        else
+        {
+            foreach (var b in bones) SetBoneVisible(b, b == target);
+            soloedBone = target;
+        }
         FocusCameraOnActive(false);
     }
 
@@ -391,6 +464,12 @@ public class BoneViewerSystem : MonoBehaviour
         }
         if (bone.toggleLabel != null)
             bone.toggleLabel.text = visible ? "-" : "+";
+
+        // Карточка чуть притухает, когда кость скрыта — для наглядности
+        if (bone.itemBg != null)
+            bone.itemBg.color = visible
+                ? new Color(0.18f, 0.20f, 0.26f, 0.90f)
+                : new Color(0.10f, 0.11f, 0.15f, 0.65f);
     }
 
     // ===========================================================
@@ -453,7 +532,14 @@ public class BoneViewerSystem : MonoBehaviour
         rt.sizeDelta = size;
 
         var img = go.AddComponent<Image>();
-        img.color = bg;
+        img.color  = bg;
+        img.sprite = RoundedSprite;      // скруглённые углы
+        img.type   = Image.Type.Sliced;
+
+        // Небольшая тень для объёма
+        var shadow = go.AddComponent<Shadow>();
+        shadow.effectColor    = new Color(0f, 0f, 0f, 0.45f);
+        shadow.effectDistance = new Vector2(0f, -3f);
 
         var btn = go.AddComponent<Button>();
         btn.targetGraphic = img;
@@ -472,8 +558,14 @@ public class BoneViewerSystem : MonoBehaviour
         txt.alignment = TextAnchor.MiddleCenter;
         txt.color = Color.white;
         txt.fontSize = 32;
+        txt.fontStyle = FontStyle.Bold;
         txt.font = GetDefaultFont();
         txt.raycastTarget = false;
+
+        // Тень у текста — читается лучше
+        var txtShadow = tGO.AddComponent<Shadow>();
+        txtShadow.effectColor    = new Color(0f, 0f, 0f, 0.5f);
+        txtShadow.effectDistance = new Vector2(1f, -1f);
 
         return btn;
     }
