@@ -18,6 +18,7 @@ public class BoneViewerSystem : MonoBehaviour
     private Camera cam;
     private OrbitCamera orbitCam;
     private GameObject currentInstance;
+    private GameObject currentPrefab;
     private readonly List<BoneEntry> bones = new List<BoneEntry>();
     private float markerLocalScale = 0.05f;
     private Material markerMaterial;
@@ -278,10 +279,20 @@ public class BoneViewerSystem : MonoBehaviour
     // ===========================================================
     void SpawnPrefab(GameObject prefab)
     {
+        // Повторный клик по той же кнопке — скрыть/показать текущую модель
+        if (currentPrefab == prefab && currentInstance != null)
+        {
+            bool showNow = !currentInstance.activeSelf;
+            currentInstance.SetActive(showNow);
+            if (showNow) FocusCameraOnActive(true);
+            return;
+        }
+
         if (currentInstance != null) Destroy(currentInstance);
         bones.Clear();
-        soloedBone = null;   // сбрасываем режим соло при смене модели
+        soloedBone = null;
 
+        currentPrefab   = prefab;
         currentInstance = Instantiate(prefab);
         currentInstance.transform.position = Vector3.zero;
 
